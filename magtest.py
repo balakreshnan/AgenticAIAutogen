@@ -1,5 +1,7 @@
 import asyncio
 import sys
+import signal
+import atexit
 from autogen_ext.models.openai import OpenAIChatCompletionClient, AzureOpenAIChatCompletionClient
 from autogen_agentchat.teams import MagenticOneGroupChat
 from autogen_agentchat.ui import Console
@@ -13,6 +15,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 async def main() -> None:
+    surfer = None
     try:
         model_client = AzureOpenAIChatCompletionClient(model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
                                                        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
@@ -38,7 +41,8 @@ async def main() -> None:
         )
 
         team = MagenticOneGroupChat([surfer], model_client=model_client)
-        await Console(team.run_stream(task="Summarize the top 10 AI papers in arxiv?"))
+        # await Console(team.run_stream(task="Summarize the top 10 AI papers in arxiv?"))
+        await Console(team.run_stream(task="summarize content from https://www.gethalfbaked.com/p/startup-ideas-425-cognitive-fitness?"))
 
         # # Note: you can also use  other agents in the team
         # team = MagenticOneGroupChat([surfer, file_surfer, coder, terminal], model_client=model_client)
@@ -48,13 +52,46 @@ async def main() -> None:
     except Exception as e:
         print(f"Exception in main: {e}")
     finally:
+        # Explicitly close the web surfer browser
+        try:
+            if surfer and hasattr(surfer, 'close'):
+                await surfer.close()
+            elif surfer and hasattr(surfer, '_browser') and surfer._browser:
+                await surfer._browser.close()
+        except Exception as cleanup_error:
+            print(f"Error during surfer cleanup: {cleanup_error}")
+        
         # Cancel all running tasks to help cleanup
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Give a moment for cleanup
+        await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    asyncio.run(main())
+    
+    # Add cleanup handler for Windows
+    def cleanup_handler():
+        loop = None
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.stop()
+        except:
+            pass
+    
+    atexit.register(cleanup_handler)
+    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Program interrupted by user")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    finally:
+        # Final cleanup attempt
+        cleanup_handler()
