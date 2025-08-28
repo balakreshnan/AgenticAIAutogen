@@ -1,0 +1,7 @@
+autogen-agentchat
+autogen-ext
+autogen-ext[openai]
+autogen-ext[azure]
+autogen-ext[magentic-one]
+playwright
+uv
